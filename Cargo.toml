@@ -1,0 +1,37 @@
+[package]
+name = "hive-desktop-rune"
+version = "0.0.1"
+edition = "2021"
+default-run = "hive-desktop-rune"
+
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "5fd9bfa2ec89e6325d6435d95066336d93369d69" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "5fd9bfa2ec89e6325d6435d95066336d93369d69", features = ["markdown"] }
+hive-media = { path = "crates/hive-media" }
+
+ureq = { version = "2", features = ["json"] }
+tungstenite = "0.26"
+serde_json = { version = "1", features = ["preserve_order"] }
+serde = { version = "1", features = ["derive"] }
+regex = "1"
+libc = "0.2"
+symphonia = { version = "0.5", default-features = false, features = ["wav", "mp3", "ogg", "vorbis", "flac", "pcm"] }
+url = "2"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+wgpu = { version = "~30.0.1", default-features = false }
+bytemuck = { version = "1.25", features = ["derive"] }
+qrcode = { version = "0.14.1", default-features = false }
+keyring = { version = "3", default-features = false, features = ["sync-secret-service", "crypto-rust", "apple-native", "windows-native"] }
+base64 = "0.22"
+gltf = { version = "1", default-features = false, features = ["utils", "extras", "names"] }
+
+[dev-dependencies]
+pollster = "0.4"
+naga = { version = "~30.0.1", features = ["wgsl-in"] }
+
+[workspace]
+members = [".", "crates/hive-media"]
+
+[patch.crates-io]
+xcap = { path = "vendor/xcap" }

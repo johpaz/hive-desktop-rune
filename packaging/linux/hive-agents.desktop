@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Hive Agents (Rune)
+Comment=Cliente nativo de Hive (Rune)
+Exec=hive-agents
+Icon=hive-agents
+Terminal=false
+Categories=Network;
+StartupWMClass=hive-desktop-rune
