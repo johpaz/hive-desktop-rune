@@ -46,6 +46,8 @@ pub struct Params {
     pub pan: [f32; 2],
     pub dist: f32,
     pub face: Face,
+    /// El giro de cada hueso del esqueleto (ver `body`).
+    pub pose: super::body::Pose,
 }
 
 struct Target {
@@ -620,6 +622,7 @@ mod tests {
             pan: [0.0; 2],
             dist: crate::live::bia_gpu::EYE[2],
             face: Default::default(),
+            pose: Default::default(),
         }
     }
 

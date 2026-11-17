@@ -143,6 +143,8 @@ pub struct Live {
     pending: std::collections::VecDeque<(f32, Sound)>,
     /// Si en esta llamada ya llegó audio del modelo: entonces la boca sigue al audio y no a las palabras.
     has_audio: bool,
+    /// Señales suavizadas del cuerpo y la expresión (esqueleto, cejas, mejillas).
+    body: super::body::BodyState,
 }
 
 impl Default for Live {
@@ -189,6 +191,7 @@ impl Default for Live {
             audio_t: -10.0,
             pending: std::collections::VecDeque::new(),
             has_audio: false,
+            body: Default::default(),
         }
     }
 }
@@ -353,6 +356,20 @@ impl Live {
 
     /// El gesto de la cara: la mandíbula y los visemas siguen la voz de BIA, sonríe en reposo y parpadea.
     pub fn face(&self) -> Face {
+        self.body.with_expression(self.mouth_face())
+    }
+
+    /// Avanza el cuerpo y la expresión según lo que BIA hace ahora.
+    pub fn animate_body(&mut self, dt: f32, bia: Bia) {
+        self.body.step(dt, self.t, bia, self.level);
+    }
+
+    /// El giro de cada hueso en este fotograma.
+    pub fn pose(&self) -> super::body::Pose {
+        self.body.pose()
+    }
+
+    fn mouth_face(&self) -> Face {
         let phase = self.t % 4.2;
         let blink = if phase < 0.14 {
             (phase / 0.14 * std::f32::consts::PI).sin()
@@ -376,6 +393,7 @@ impl Live {
             u: 0.0,
             smile: 0.15 * (1.0 - l),
             blink,
+            ..Default::default()
         }
     }
 

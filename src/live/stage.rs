@@ -99,6 +99,7 @@ impl LiveStage {
             live.viewport = (rect[2], rect[3]);
             live.step((f.dt as f32).min(0.1));
             let bia = live.bia(voice_on, voice_live, now);
+            live.animate_body((f.dt as f32).min(0.1), bia);
             let scale = f.rt.env.scale.clamp(1.0, 1.75);
             let size = (
                 ((rect[2] * scale).round() as u32).max(1),
@@ -115,6 +116,7 @@ impl LiveStage {
                 pan: live.pan,
                 dist: live.dist,
                 face: live.face(),
+                pose: live.pose(),
             };
             self.gpu
                 .as_mut()

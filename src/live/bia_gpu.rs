@@ -46,6 +46,7 @@ struct PartGpu {
     ibuf: wgpu::Buffer,
     count: u32,
     offset: [f32; 3],
+    joint: Option<usize>,
     color: [f32; 4],
     roughness: f32,
 }
@@ -389,6 +390,7 @@ impl BiaGpu {
                 }),
                 count: p.indices.len() as u32,
                 offset: p.offset,
+                joint: p.joint,
                 color: p.color,
                 roughness: p.roughness,
             })
@@ -411,6 +413,8 @@ impl BiaGpu {
     pub fn update(&mut self, queue: &wgpu::Queue, p: &Params, size: (u32, u32)) {
         let aspect = size.0 as f32 / size.1 as f32;
         self.model.morphed(&p.face, &mut self.scratch);
+        let skin = self.model.skin_matrices(&p.pose);
+        self.model.skinned(&skin, &mut self.scratch);
         queue.write_buffer(&self.vbuf, 0, bytemuck::cast_slice(&self.scratch));
         let m = model_matrix(p);
         queue.write_buffer(
@@ -419,7 +423,9 @@ impl BiaGpu {
             bytemuck::bytes_of(&uniforms(p, aspect, m, [0.0; 4], true)),
         );
         for part in &self.parts {
-            let pm = mul(&m, &translate(part.offset));
+            // La boca va atada a la cabeza: sigue su cabeceo y su ladeo.
+            let head = Bia::joint_matrix(&skin, part.joint);
+            let pm = mul(&mul(&m, &head), &translate(part.offset));
             let flat = [part.color[0], part.color[1], part.color[2], part.roughness];
             queue.write_buffer(
                 &part.draw.ubuf,
@@ -484,6 +490,7 @@ mod tests {
             pan: [0.0; 2],
             dist: EYE[2],
             face: Default::default(),
+            pose: Default::default(),
         };
         let m = model_matrix(&p);
         // El origen del modelo cae en y = −1,02 y la cabeza (y = 1) en 1,3 − 1,02 = 0,28.

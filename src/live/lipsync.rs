@@ -68,6 +68,7 @@ pub fn face(sound: Sound, smile: f32) -> Face {
         u: l * 0.3 * dark * (1.0 - l),
         smile: smile * (1.0 - l),
         blink: 0.0,
+        ..Default::default()
     }
 }
 
