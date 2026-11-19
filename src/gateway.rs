@@ -36,7 +36,9 @@ pub fn resolve_hive_home() -> Result<PathBuf, String> {
     if let Some(explicit) = std::env::var_os("HIVE_HOME") {
         return Ok(PathBuf::from(explicit));
     }
+    // HOME en Linux y macOS; USERPROFILE en Windows, que no define HOME.
     std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
         .map(|home| PathBuf::from(home).join(".hive"))
         .ok_or_else(|| "No se pudo resolver el directorio del usuario".into())
 }

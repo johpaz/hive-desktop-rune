@@ -35,7 +35,7 @@ CTL
 dpkg-deb --root-owner-group --build "$OUT/stage" "$OUT/hive-agents-rune_${VERSION}_${ARCH_DEB}.deb" >/dev/null
 
 # Portátil: carpeta autocontenida.
-P="hive-agents-rune-$VERSION-linux"
+P="hive-agents-rune-$VERSION-linux-$ARCH_DEB"
 rm -rf "$OUT/$P" && mkdir -p "$OUT/$P"
 cp "$LIB/hive-desktop-rune" "$LIB/hive-gateway-rust" "$OUT/$P/"
 cp assets/logo.png "$OUT/$P/hive-agents.png"

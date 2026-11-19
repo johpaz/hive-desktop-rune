@@ -1,6 +1,7 @@
 name: Release
 
-# Construye el instalador de Hive Agents (Rune) para Linux x86_64 (.deb y tar.gz portátil) y lo adjunta
+# Construye los instaladores de Hive Agents (Rune): Linux x64/arm64 (.deb + tar.gz), macOS x64/arm64 (.dmg)
+# y Windows x64 (instalador .exe + .zip), y los adjunta
 # al release de GitHub de ESTE repositorio. Solo publica aquí: no toca npm, PyPI ni el repo del SDK.
 #
 # Versión: la única fuente es `version` en Cargo.toml. El tag debe ser v<esa versión>.
@@ -57,22 +58,40 @@ jobs:
           print('OK', cargo)
           PY
 
-  linux:
-    name: Instalador Linux x86_64
+  build:
+    name: Instalador ${{ matrix.key }}
     needs: version
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { key: linux-x64,   runner: ubuntu-24.04,     gateway: linux-x64-gnu,    pkg: linux }
+          - { key: linux-arm64, runner: ubuntu-24.04-arm, gateway: linux-arm64-gnu,  pkg: linux }
+          - { key: macos-x64,   runner: macos-15-intel,   gateway: darwin-x64,       pkg: macos }
+          - { key: macos-arm64, runner: macos-15,         gateway: darwin-arm64,     pkg: macos }
+          - { key: windows-x64, runner: windows-2025,     gateway: win32-x64-msvc,   pkg: windows }
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Dependencias del sistema
+      - name: Dependencias del sistema (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
+          # Misma lista que el release de Tauri de hive (probada en CI) más lo propio de Rune.
           sudo apt-get install -y --no-install-recommends \
-            pkg-config clang libclang-dev libasound2-dev libdbus-1-dev libwayland-dev libxkbcommon-dev \
-            libvulkan-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libgbm-dev \
-            libpipewire-0.3-dev libspa-0.2-dev libssl-dev dpkg-dev
+            pkg-config clang libclang-dev libssl-dev libasound2-dev libdbus-1-dev \
+            libpipewire-0.3-dev libspa-0.2-dev libgbm-dev libdrm-dev libegl-dev libvulkan-dev \
+            libwayland-dev libxkbcommon-dev libxcb1-dev libxcb-shm0-dev libxcb-randr0-dev \
+            libxcb-xfixes0-dev dpkg-dev
+      - name: NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y --no-progress && echo "C:\\Program Files (x86)\\NSIS" >> "$GITHUB_PATH"
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - uses: actions/cache@v5
@@ -81,39 +100,45 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: linux-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: linux-
+          key: ${{ matrix.key }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: ${{ matrix.key }}-
       - name: Descargar y verificar el gateway del SDK
         run: |
           set -euo pipefail
           base="https://github.com/${GATEWAY_REPO}/releases/download/v${GATEWAY_VERSION}"
-          name="hive-gateway-rust-${GATEWAY_VERSION}-linux-x64-gnu.tar.gz"
-          mkdir -p "$RUNNER_TEMP/gw"
-          cd "$RUNNER_TEMP/gw"
-          curl -fsSL -O "$base/$name" -O "$base/SHA256SUMS"
-          grep " $name\$" SHA256SUMS | sha256sum -c -
-          tar -xzf "$name"
-          echo "HIVE_GATEWAY_BIN=$PWD/hive-gateway-rust-${GATEWAY_VERSION}-linux-x64-gnu/hive-gateway-rust" >> "$GITHUB_ENV"
+          stem="hive-gateway-rust-${GATEWAY_VERSION}-${{ matrix.gateway }}"
+          ext="tar.gz"; [ "${{ matrix.pkg }}" = "windows" ] && ext="zip"
+          dir="$RUNNER_TEMP/gw"; mkdir -p "$dir"; cd "$dir"
+          curl -fsSL -O "$base/$stem.$ext" -O "$base/SHA256SUMS"
+          grep " $stem.$ext\$" SHA256SUMS | (sha256sum -c - 2>/dev/null || shasum -a 256 -c -)
+          if [ "$ext" = zip ]; then 7z x -y "$stem.zip" >/dev/null; bin="$PWD/$stem/hive-gateway-rust.exe"
+          else tar -xzf "$stem.$ext"; bin="$PWD/$stem/hive-gateway-rust"; fi
+          test -f "$bin"
+          echo "HIVE_GATEWAY_BIN=$bin" >> "$GITHUB_ENV"
       - name: Empaquetar
         run: |
-          test -x "$HIVE_GATEWAY_BIN"
-          packaging/linux/package.sh dist
+          packaging/${{ matrix.pkg }}/package.sh dist
           ls -l dist
       - name: Sumas de verificación
         working-directory: dist
-        run: sha256sum *.deb *.tar.gz | tee SHA256SUMS
+        run: |
+          files=$(ls *.deb *.tar.gz *.dmg *.exe *.zip 2>/dev/null || true)
+          (sha256sum $files 2>/dev/null || shasum -a 256 $files) | tee SHA256SUMS-${{ matrix.key }}
       - uses: actions/upload-artifact@v7
         with:
-          name: hive-agents-rune-linux-x64
+          name: hive-agents-rune-${{ matrix.key }}
           if-no-files-found: error
           path: |
             dist/*.deb
             dist/*.tar.gz
-            dist/SHA256SUMS
+            dist/*.dmg
+            dist/*.exe
+            dist/*.zip
+            dist/SHA256SUMS-*
 
   release:
     name: Release en GitHub
-    needs: [version, linux]
+    needs: [version, build]
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     permissions:
@@ -121,12 +146,15 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: hive-agents-rune-linux-x64
+          pattern: hive-agents-rune-*
           path: artifacts
+          merge-multiple: true
+      - name: Unir sumas de verificación
+        run: cd artifacts && cat SHA256SUMS-* > SHA256SUMS && rm SHA256SUMS-* && ls -l
       - name: Crear release con el instalador
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag --title "Hive Agents (Rune) $GITHUB_REF_NAME" \
-            artifacts/*.deb artifacts/*.tar.gz artifacts/SHA256SUMS
+            artifacts/*
