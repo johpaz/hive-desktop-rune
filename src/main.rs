@@ -3139,9 +3139,13 @@ fn kill_check(how: &str) -> i32 {
         gw.is_external()
     );
     match how {
+        #[cfg(unix)]
         "sigkill" => unsafe {
             libc::kill(libc::getpid(), libc::SIGKILL);
         },
+        // Windows no tiene señales: abort es lo más parecido a una muerte sin limpieza.
+        #[cfg(not(unix))]
+        "sigkill" => std::process::abort(),
         "abort" => std::process::abort(),
         _ => std::process::exit(0),
     }
