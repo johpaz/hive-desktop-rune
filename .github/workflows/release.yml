@@ -1,0 +1,132 @@
+name: Release
+
+# Construye el instalador de Hive Agents (Rune) para Linux x86_64 (.deb y tar.gz portátil) y lo adjunta
+# al release de GitHub de ESTE repositorio. Solo publica aquí: no toca npm, PyPI ni el repo del SDK.
+#
+# Versión: la única fuente es `version` en Cargo.toml. El tag debe ser v<esa versión>.
+#   scripts/release.sh 0.1.0      # sube la versión, hace commit y crea el tag (no empuja)
+#   git push origin master v0.1.0 # esto dispara el workflow y crea el release
+# Ensayo: Actions > Release > Run workflow (dry_run=true, por defecto): construye y sube el artefacto, no publica.
+#
+# El sidecar hive-gateway-rust se descarga del release público del SDK (versión fijada en GATEWAY_VERSION)
+# y se verifica con su SHA256SUMS.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Ensayo: construye y empaqueta sin publicar'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GATEWAY_REPO: johpaz/hiveSDK-Rust
+  GATEWAY_VERSION: '0.1.0'
+
+jobs:
+  version:
+    name: Versión coherente con el tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: v
+        run: |
+          python3 - <<'PY'
+          import os, re, tomllib
+          cargo = tomllib.load(open('Cargo.toml', 'rb'))['package']['version']
+          tag = os.environ.get('GITHUB_REF_NAME', '') if os.environ.get('GITHUB_REF_TYPE') == 'tag' else ''
+          if tag:
+              assert tag == f'v{cargo}', f'el tag {tag} no coincide con Cargo.toml ({cargo})'
+          lock = open('Cargo.lock').read()
+          m = re.search(r'name = "hive-desktop-rune"\nversion = "([^"]+)"', lock)
+          assert m and m.group(1) == cargo, f'Cargo.lock ({m and m.group(1)}) desalineado con Cargo.toml ({cargo})'
+          open(os.environ['GITHUB_OUTPUT'], 'a').write(f'version={cargo}\n')
+          print('OK', cargo)
+          PY
+
+  linux:
+    name: Instalador Linux x86_64
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libclang-dev libasound2-dev libdbus-1-dev libwayland-dev libxkbcommon-dev \
+            libvulkan-dev libxcb1-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libgbm-dev \
+            libpipewire-0.3-dev libspa-0.2-dev libssl-dev dpkg-dev
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: linux-
+      - name: Descargar y verificar el gateway del SDK
+        run: |
+          set -euo pipefail
+          base="https://github.com/${GATEWAY_REPO}/releases/download/v${GATEWAY_VERSION}"
+          name="hive-gateway-rust-${GATEWAY_VERSION}-linux-x64-gnu.tar.gz"
+          mkdir -p "$RUNNER_TEMP/gw"
+          cd "$RUNNER_TEMP/gw"
+          curl -fsSL -O "$base/$name" -O "$base/SHA256SUMS"
+          grep " $name\$" SHA256SUMS | sha256sum -c -
+          tar -xzf "$name"
+          echo "HIVE_GATEWAY_BIN=$PWD/hive-gateway-rust-${GATEWAY_VERSION}-linux-x64-gnu/hive-gateway-rust" >> "$GITHUB_ENV"
+      - name: Empaquetar
+        run: |
+          test -x "$HIVE_GATEWAY_BIN"
+          packaging/linux/package.sh dist
+          ls -l dist
+      - name: Sumas de verificación
+        working-directory: dist
+        run: sha256sum *.deb *.tar.gz | tee SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hive-agents-rune-linux-x64
+          if-no-files-found: error
+          path: |
+            dist/*.deb
+            dist/*.tar.gz
+            dist/SHA256SUMS
+
+  release:
+    name: Release en GitHub
+    needs: [version, linux]
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: hive-agents-rune-linux-x64
+          path: artifacts
+      - name: Crear release con el instalador
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag --title "Hive Agents (Rune) $GITHUB_REF_NAME" \
+            artifacts/*.deb artifacts/*.tar.gz artifacts/SHA256SUMS
