@@ -3149,6 +3149,7 @@ fn kill_check(how: &str) -> i32 {
         "abort" => std::process::abort(),
         _ => std::process::exit(0),
     }
+    #[allow(unreachable_code)]
     0
 }
 

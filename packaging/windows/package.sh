@@ -22,7 +22,8 @@ open(sys.argv[1], 'wb').write(struct.pack('<HHH', 0, 1, 1) + struct.pack('<BBBBH
 PY
 
 abs() { cygpath -w "$(realpath "$1")" 2>/dev/null || realpath "$1"; }
-makensis -V2 "/DVERSION=$VERSION" "/DSTAGE=$(abs "$STAGE")" "/DOUT=$(abs "$OUT")\\hive-agents-rune_${VERSION}_windows-x64-setup.exe" packaging/windows/installer.nsi
+# -D y no /D: Git Bash convertiría un argumento que empieza por «/» en una ruta de Windows.
+makensis -V2 "-DVERSION=$VERSION" "-DSTAGE=$(abs "$STAGE")" "-DOUT=$(abs "$OUT")\\hive-agents-rune_${VERSION}_windows-x64-setup.exe" "$(abs packaging/windows/installer.nsi)"
 
 P="hive-agents-rune-$VERSION-windows-x64"
 mkdir -p "$OUT/$P" && cp "$STAGE/hive-desktop-rune.exe" "$STAGE/hive-gateway-rust.exe" "$STAGE/hive-agents.ico" "$OUT/$P/"
